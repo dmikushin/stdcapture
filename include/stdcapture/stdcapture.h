@@ -30,6 +30,9 @@
 #define STD_ERR_FD (fileno(stderr)) 
 #endif
 
+namespace std {
+namespace capture {
+
 class StdCapture
 {
     enum PIPES { READ, WRITE };
@@ -55,6 +58,9 @@ public:
     bool EndCapture();
     std::string GetCapture();
 };
+
+} // namespace capture
+} // namespace std
 
 #endif // STDCAPTURE_H
 

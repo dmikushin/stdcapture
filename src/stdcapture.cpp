@@ -1,4 +1,6 @@
-#include "stdcapture.h"
+#include "stdcapture/stdcapture.h"
+
+using namespace std::capture;
 
 StdCapture::StdCapture():
     m_capturing(false)
