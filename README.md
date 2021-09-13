@@ -20,23 +20,37 @@ make
 
 #include <iostream>
 
-int main()
+int main(int argc, char* argv[])
 {
-        using namespace std::capture;
+	using namespace std::capture;
 
-        StdCapture stdcap;
+	// Perform stdout capture.
+	std::string captured;
+	{
+		CaptureStdout cap([&](const char* buf, size_t szbuf)
+		{
+			captured += std::string(buf, szbuf);
+		});
+		std::cout << "Hello, stdout!" << std::endl;
+	}
 
-        // Start capture.
-        stdcap.BeginCapture();
+	// Print out what has been captured from stdout so far.
+	std::cout << "Captured from stdout: " << captured;
 
-        std::cout << "Hello world!" << std::endl;
+        // Perform stderr capture.
+	captured.clear();
+	{
+	        CaptureStderr cap([&](const char* buf, size_t szbuf)
+		{
+			captured += std::string(buf, szbuf);
+		});
+	        std::cerr << "Hello, stderr!" << std::endl;
+	}
 
-        stdcap.EndCapture();
+        // Print out what has been captured from stderr so far.
+        std::cout << "Captured from stderr: " << captured;
 
-        // Print out what has been captured so far.
-        std::cout << "Captured: " << stdcap.GetCapture();
-
-        return 0;
+	return 0;
 }
 ```
 

@@ -2,27 +2,35 @@
 
 #include <iostream>
 
-int main()
+int main(int argc, char* argv[])
 {
 	using namespace std::capture;
 
 	// Perform stdout capture.
-	CaptureStdout capout;
-	capout.begin();
-	std::cout << "Hello, stdout!" << std::endl;
-	capout.end();
+	std::string captured;
+	{
+		CaptureStdout cap([&](const char* buf, size_t szbuf)
+		{
+			captured += std::string(buf, szbuf);
+		});
+		std::cout << "Hello, stdout!" << std::endl;
+	}
 
 	// Print out what has been captured from stdout so far.
-	std::cout << "Captured: " << capout.GetCapture();
+	std::cout << "Captured from stdout: " << captured;
 
         // Perform stderr capture.
-        CaptureStderr caperr;
-        caperr.begin();
-        std::cerr << "Hello, stderr!" << std::endl;
-        caperr.end();
+	captured.clear();
+	{
+	        CaptureStderr cap([&](const char* buf, size_t szbuf)
+		{
+			captured += std::string(buf, szbuf);
+		});
+	        std::cerr << "Hello, stderr!" << std::endl;
+	}
 
         // Print out what has been captured from stderr so far.
-        std::cout << "Captured: " << caperr.GetCapture();
+        std::cout << "Captured from stderr: " << captured;
 
 	return 0;
 }

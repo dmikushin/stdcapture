@@ -17,8 +17,8 @@
 #include <unistd.h>
 #endif
 #include <fcntl.h>
-#include <stdio.h>
-#include <mutex>
+#include <functional>
+#include <cstdio>
 #include <chrono>
 #include <thread>
 
@@ -33,7 +33,7 @@
 namespace std {
 namespace capture {
 
-class CaptureInput
+class CaptureOutput
 {
 	FILE* stream;
 	int fd;
@@ -43,48 +43,29 @@ class CaptureInput
 	int pipes[2];
 	int streamOld;
 
-	bool capturing = false;
-	std::mutex mtx;
-	std::string captured;
+	std::function<void(const char*, size_t)> callback;
 
 public :
 
-	CaptureInput(FILE* stream_, int fd_) : stream(stream_), fd(fd_)
+	CaptureOutput(FILE* stream_, int fd_, std::function<void(const char*, size_t)> callback_) :
+		stream(stream_), fd(fd_), callback(callback_)
 	{
 		// Make output stream unbuffered, so that we don't need to flush
 		// the streams before capture and after capture (fflush can cause a deadlock)
-		std::lock_guard<std::mutex> lock(mtx);
 		setvbuf(stream, NULL, _IONBF, 0);
-	}
 
-	void begin()
-	{
-		std::lock_guard<std::mutex> lock(mtx);
-		if (capturing)
-			return;
-
+		// Start capturing.
 		secure_pipe(pipes);
 		streamOld = secure_dup(fd);
 		secure_dup2(pipes[WRITE], fd);
-		capturing = true;
 #ifndef _MSC_VER
 		secure_close(pipes[WRITE]);
 #endif
 	}
 
-	bool isCapturing()
+	~CaptureOutput()
 	{
-		std::lock_guard<std::mutex> lock(mtx);
-		return capturing;
-	}
-
-	bool end()
-	{
-		std::lock_guard<std::mutex> lock(mtx);
-		if (!capturing)
-			return true;
-
-		captured.clear();
+		// End capturing.
 		secure_dup2(streamOld, fd);
 
 		const int bufSize = 1025;
@@ -104,7 +85,7 @@ public :
 			if (bytesRead > 0)
 			{
 				buf[bytesRead] = 0;
-				captured += buf;
+				callback(buf, bytesRead);
 			}
 			else if (bytesRead < 0)
 			{
@@ -120,14 +101,6 @@ public :
 #ifdef _MSC_VER
 		secure_close(pipes[WRITE]);
 #endif
-		capturing = false;
-		return true;
-	}
-
-	std::string GetCapture()
-	{
-		std::lock_guard<std::mutex> lock(mtx);
-		return captured;
 	}
 
 private :
@@ -197,18 +170,20 @@ private :
 
 };
 
-class CaptureStdout : public CaptureInput
+class CaptureStdout : public CaptureOutput
 {
 public :
 
-	CaptureStdout() : CaptureInput(stdout, STD_OUT_FD) { }
+	CaptureStdout(std::function<void(const char*, size_t)> callback) :
+		CaptureOutput(stdout, STD_OUT_FD, callback) { }
 };
 
-class CaptureStderr : public CaptureInput
+class CaptureStderr : public CaptureOutput
 {
 public :
 
-	CaptureStderr() : CaptureInput(stderr, STD_ERR_FD) { }
+	CaptureStderr(std::function<void(const char*, size_t)> callback) :
+		CaptureOutput(stderr, STD_ERR_FD, callback) { }
 };
 
 } // namespace capture
