@@ -33,30 +33,182 @@
 namespace std {
 namespace capture {
 
-class StdCapture
+class CaptureInput
 {
-    enum PIPES { READ, WRITE };
+	FILE* stream;
+	int fd;
 
-    int secure_dup(int src);
-    void secure_pipe(int * pipes);
-    void secure_dup2(int src, int dest);
-    void secure_close(int & fd);
+	enum PIPES { READ, WRITE };
 
-    int m_pipe[2];
-    int m_oldStdOut;
-    int m_oldStdErr;
-    bool m_capturing;
-    std::mutex m_mutex;
-    std::string m_captured;
+	int pipes[2];
+	int streamOld;
 
-public:
+	bool capturing = false;
+	std::mutex mtx;
+	std::string captured;
 
-    StdCapture();
+public :
 
-    void BeginCapture();
-    bool IsCapturing();
-    bool EndCapture();
-    std::string GetCapture();
+	CaptureInput(FILE* stream_, int fd_) : stream(stream_), fd(fd_)
+	{
+		// Make output stream unbuffered, so that we don't need to flush
+		// the streams before capture and after capture (fflush can cause a deadlock)
+		std::lock_guard<std::mutex> lock(mtx);
+		setvbuf(stream, NULL, _IONBF, 0);
+	}
+
+	void begin()
+	{
+		std::lock_guard<std::mutex> lock(mtx);
+		if (capturing)
+			return;
+
+		secure_pipe(pipes);
+		streamOld = secure_dup(fd);
+		secure_dup2(pipes[WRITE], fd);
+		capturing = true;
+#ifndef _MSC_VER
+		secure_close(pipes[WRITE]);
+#endif
+	}
+
+	bool isCapturing()
+	{
+		std::lock_guard<std::mutex> lock(mtx);
+		return capturing;
+	}
+
+	bool end()
+	{
+		std::lock_guard<std::mutex> lock(mtx);
+		if (!capturing)
+			return true;
+
+		captured.clear();
+		secure_dup2(streamOld, fd);
+
+		const int bufSize = 1025;
+		char buf[bufSize];
+		int bytesRead = 0;
+		bool fd_blocked(false);
+		do
+		{
+			bytesRead = 0;
+			fd_blocked = false;
+#ifdef _MSC_VER
+			if (!eof(pipes[READ]))
+				bytesRead = read(pipes[READ], buf, bufSize - 1);
+#else
+			bytesRead = read(pipes[READ], buf, bufSize - 1);
+#endif
+			if (bytesRead > 0)
+			{
+				buf[bytesRead] = 0;
+				captured += buf;
+			}
+			else if (bytesRead < 0)
+			{
+				fd_blocked = (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR);
+				if (fd_blocked)
+					std::this_thread::sleep_for(std::chrono::milliseconds(10));
+			}
+		}
+		while(fd_blocked || bytesRead == (bufSize - 1));
+
+		secure_close(streamOld);
+		secure_close(pipes[READ]);
+#ifdef _MSC_VER
+		secure_close(pipes[WRITE]);
+#endif
+		capturing = false;
+		return true;
+	}
+
+	std::string GetCapture()
+	{
+		std::lock_guard<std::mutex> lock(mtx);
+		return captured;
+	}
+
+private :
+
+	int secure_dup(int src)
+	{
+		int ret = -1;
+		bool fd_blocked = false;
+		do
+		{
+			ret = dup(src);
+			fd_blocked = (errno == EINTR ||  errno == EBUSY);
+			if (fd_blocked)
+				std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+		while (ret < 0);
+		return ret;
+	}
+
+	void secure_pipe(int * pipes)
+	{
+		int ret = -1;
+		bool fd_blocked = false;
+		do
+		{
+#ifdef _MSC_VER
+			ret = pipe(pipes, 65536, O_BINARY);
+#else
+			ret = pipe(pipes) == -1;
+#endif
+			fd_blocked = (errno == EINTR ||  errno == EBUSY);
+			if (fd_blocked)
+				std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+		while (ret < 0);
+	}
+
+	void secure_dup2(int src, int dest)
+	{
+		int ret = -1;
+		bool fd_blocked = false;
+		do
+		{
+			ret = dup2(src, dest);
+			fd_blocked = (errno == EINTR ||  errno == EBUSY);
+			if (fd_blocked)
+				std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+		while (ret < 0);
+	}
+
+	void secure_close(int & fd)
+	{
+		int ret = -1;
+		bool fd_blocked = false;
+		do
+		{
+			ret = close(fd);
+			fd_blocked = (errno == EINTR);
+			if (fd_blocked)
+				std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+		while (ret < 0);
+
+		fd = -1;
+	}
+
+};
+
+class CaptureStdout : public CaptureInput
+{
+public :
+
+	CaptureStdout() : CaptureInput(stdout, STD_OUT_FD) { }
+};
+
+class CaptureStderr : public CaptureInput
+{
+public :
+
+	CaptureStderr() : CaptureInput(stderr, STD_ERR_FD) { }
 };
 
 } // namespace capture
