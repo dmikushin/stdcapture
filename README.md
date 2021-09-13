@@ -54,4 +54,10 @@ int main(int argc, char* argv[])
 }
 ```
 
+Sample output:
+
+```
+Captured from stdout: Hello, stdout!
+Captured from stderr: Hello, stderr!
+```
 
